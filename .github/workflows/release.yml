@@ -33,19 +33,19 @@ jobs:
         run: |
           mkdir -p dist
           git archive --format=zip --prefix=BlogHelper/ \
-            -o "dist/BlogHelper-Typecho-${{ steps.ver.outputs.version }}.zip" \
+            -o "dist/BlogHelper-Typecho.zip" \
             HEAD:typecho/BlogHelper
 
       - name: 打包 WordPress 插件
         run: |
           git archive --format=zip --prefix=blog-helper/ \
-            -o "dist/BlogHelper-WordPress-${{ steps.ver.outputs.version }}.zip" \
+            -o "dist/BlogHelper-WordPress.zip" \
             HEAD:wordpress/blog-helper
 
       - name: 打包其他博客类型 API 文档
         run: |
           git archive --format=zip \
-            -o "dist/BlogHelper-Other-API-Docs-${{ steps.ver.outputs.version }}.zip" \
+            -o "dist/BlogHelper-Other-API-Docs.zip" \
             HEAD:other
 
       - name: 发布 Release
