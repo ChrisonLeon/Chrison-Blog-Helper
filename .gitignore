@@ -1,0 +1,5 @@
+# macOS
+.DS_Store
+
+# 插件运行时产物
+error.log

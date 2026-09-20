@@ -1,0 +1,57 @@
+name: Release
+
+# 推送 v 开头的 tag（如 v1.0.0）自动打包并发布 Release；
+# 也可在 GitHub Actions 页面手动触发（版本号自动为 build-序号）。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 计算版本号
+        id: ver
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=build-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            echo "tag=release-${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 打包 Typecho 插件
+        run: |
+          mkdir -p dist
+          git archive --format=zip --prefix=BlogHelper/ \
+            -o "dist/BlogHelper-Typecho-${{ steps.ver.outputs.version }}.zip" \
+            HEAD:blog-connectors/typecho/BlogHelper
+
+      - name: 打包 WordPress 插件
+        run: |
+          git archive --format=zip --prefix=blog-helper/ \
+            -o "dist/BlogHelper-WordPress-${{ steps.ver.outputs.version }}.zip" \
+            HEAD:blog-connectors/wordpress/blog-helper
+
+      - name: 打包其他博客类型 API 文档
+        run: |
+          git archive --format=zip \
+            -o "dist/BlogHelper-Other-API-Docs-${{ steps.ver.outputs.version }}.zip" \
+            HEAD:blog-connectors/other
+
+      - name: 发布 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.version }}
+          files: dist/*.zip
+          generate_release_notes: true
