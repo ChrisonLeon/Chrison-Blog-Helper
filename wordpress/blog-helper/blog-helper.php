@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Blog Helper
- * Plugin URI: https://chrison.cn/work/433.html
+ * Plugin URI: https://chrison.cn/work/520.html
  * Description: 一键接收「目的地-Destination博客助手」小程序的推送（微信运动步数 / 心情状态），自动建表存储。启用后到 设置 → Blog Helper 复制接口地址与授权密令，填入小程序即可完成对接。
  * Author: Chrison
  * Author URI: https://chrison.cn
@@ -661,7 +661,8 @@ function blog_helper_settings_page()
     ?>
     <div class="wrap">
         <h1>Blog Helper 设置</h1>
-        <p>小程序「目的地-Destination博客助手」推送对接配置。把下面的两项填入小程序「我的」页并保存即可。</p>
+        <p>小程序「目的地-Destination博客助手」推送对接配置。把下面的两项填入小程序「我的」页并保存即可。
+           📖 <a href="https://chrison.cn/work/520.html" target="_blank">完整使用文档（新标签打开）</a></p>
         <p><img src="<?php echo esc_url(plugins_url('assets/qrcode.jpeg', __FILE__)); ?>"
                 alt="小程序码" style="width:160px;height:160px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,.12)" /><br>
            <span class="description">微信扫码直接打开小程序</span></p>

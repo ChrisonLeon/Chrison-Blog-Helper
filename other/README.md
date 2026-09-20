@@ -1,5 +1,7 @@
 # 其他博客类型 · API 对接文档（自建接收端）
 
+> 📖 **完整使用文档**：<https://chrison.cn/work/520.html>
+
 适用于**非 Typecho、非 WordPress** 的自建博客/网站系统（Java/Python/Node.js/Go/.NET 等任何能跑 HTTP 服务的环境）。
 按本文档实现一个接收接口，即可让「目的地-Destination博客助手」小程序把**微信运动步数、心情状态、说说（文字+图片+位置）**推送到你的系统。
 

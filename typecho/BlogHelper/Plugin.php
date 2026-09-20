@@ -2,7 +2,7 @@
 /**
  * Blog Helper - 一键接收「目的地-Destination博客助手」小程序推送的微信运动步数与心情状态，自动建表存储，支持主题调用展示。<br>
  * 启用即完成数据表创建；推送入口为独立文件 <b>/usr/plugins/BlogHelper/push.php</b>（不依赖 Typecho 类库，不受版本升级影响）。<br>
- * 插件说明与文档：<a href="https://chrison.cn" target="_blank">Chrison</a>
+ * 插件说明与文档：<a href="https://chrison.cn/work/520.html" target="_blank">chrison.cn/work/520.html</a>
  *
  * @package BlogHelper
  * @author Chrison
@@ -95,7 +95,8 @@ class Plugin implements PluginInterface
             . '授权密令：<b>' . $secret . '</b><br>'
             . '密钥已自动生成并保存；也可手动改成自定义密钥（改后需同步更新小程序端）。如怀疑泄露：清空并保存，刷新设置页会自动生成新密钥。';
 
-        $usage = '<br><br><b>前端调用（主题模板中使用，可直接复制）</b><br>'
+        $usage = '<br><br><b>📖 完整使用文档</b>：<a href="https://chrison.cn/work/520.html" target="_blank">chrison.cn/work/520.html</a>（新标签打开）<br><br>'
+            . '<b>前端调用（主题模板中使用，可直接复制）</b><br>'
             . '最新步数：<br>'
             . '<code style="display:block;white-space:pre-wrap;word-break:break-all;background:#f6f8fa;padding:8px;border-radius:6px;">'
             . htmlspecialchars('<?php $s = \TypechoPlugin\BlogHelper\Api::latestSteps(); echo $s ? $s[\'steps\'] . \' 步（\' . $s[\'step_date\'] . \'）\' : \'暂无步数\'; ?>')
