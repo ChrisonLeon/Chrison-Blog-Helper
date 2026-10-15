@@ -51,6 +51,91 @@ function bh_cut($text, $max)
 }
 
 // ---------------------------------------------------------------------------
+// 数据表结构自修复：插件只覆盖文件升级（未停用/启用）时旧表不会自动补列，
+// 入库报缺列错误时按错误信息补列并重试一次。NOT NULL 一律带默认值：
+// SQLite 硬性要求，同时兼容 MySQL 严格模式。
+// ---------------------------------------------------------------------------
+function bh_expected_columns($tableNoPrefix)
+{
+    // 字段 => [MySQL 定义, SQLite 定义]
+    switch ($tableNoPrefix) {
+        case 'blog_helper_wechat':
+            return array(
+                'openid'    => array("VARCHAR(64) NOT NULL DEFAULT ''", "VARCHAR(64) NOT NULL DEFAULT ''"),
+                'steps'     => array('INT UNSIGNED NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
+                'step_date' => array("DATE NOT NULL DEFAULT '1970-01-01'", "DATE NOT NULL DEFAULT '1970-01-01'"),
+                'created'   => array("DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+            );
+        case 'blog_helper_status':
+            return array(
+                'openid'      => array("VARCHAR(64) NOT NULL DEFAULT ''", "VARCHAR(64) NOT NULL DEFAULT ''"),
+                'emoji_id'    => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'emoji_name'  => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'emoji'       => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'custom_text' => array("VARCHAR(100) NOT NULL DEFAULT ''", "VARCHAR(100) NOT NULL DEFAULT ''"),
+                'created'     => array("DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+            );
+        case 'blog_helper_log':
+            return array(
+                'openid'       => array("VARCHAR(64) NOT NULL DEFAULT ''", "VARCHAR(64) NOT NULL DEFAULT ''"),
+                'action'       => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'request_data' => array('TEXT NULL', 'TEXT'),
+                'result'       => array('TINYINT NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
+                'created'      => array("DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+            );
+    }
+    return array();
+}
+
+// 从入库异常信息里解析缺列的字段名
+// MySQL: Column not found: 1054 Unknown column 'step_date' in 'field list'
+// SQLite: table xxx has no column named step_date
+function bh_missing_column($errText)
+{
+    $errText = (string)$errText;
+    if (preg_match("/Unknown column '([^']+)'/i", $errText, $m)) {
+        return $m[1];
+    }
+    if (preg_match('/has no column named\s+(\S+)/i', $errText, $m)) {
+        return rtrim($m[1], "',\"");
+    }
+    return '';
+}
+
+// 解析出缺列则补列，返回是否补列成功。$bhDb（Typecho 1.2/1.3+，MySQL/SQLite 均可）
+// 与 $bhPdo（旧版常量式连接，仅 MySQL）二选一
+function bh_repair_missing_column($tableNoPrefix, $errText)
+{
+    global $bhDb, $bhPdo, $bhPrefix;
+    $column = bh_missing_column($errText);
+    $defs = bh_expected_columns($tableNoPrefix);
+    if ($column === '' || !isset($defs[$column])) {
+        return false;
+    }
+    $isMysql = true;
+    if (isset($bhDb)) {
+        try {
+            $isMysql = stripos((string)$bhDb->getAdapterName(), 'mysql') !== false;
+        } catch (\Throwable $e) {
+        }
+    }
+    $def = $isMysql ? $defs[$column][0] : $defs[$column][1];
+    $qt = $isMysql ? '`' : '"';
+    $sql = 'ALTER TABLE ' . $qt . $bhPrefix . $tableNoPrefix . $qt
+        . ' ADD COLUMN ' . $qt . $column . $qt . ' ' . $def;
+    try {
+        if (isset($bhDb)) {
+            $bhDb->query($sql);
+        } else {
+            $bhPdo->exec($sql);
+        }
+        return true;
+    } catch (\Throwable $e) {
+        return false;
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 1. 加载站点配置（本文件位于 /usr/plugins/BlogHelper/）
 // ---------------------------------------------------------------------------
 $bhRoot = dirname(__DIR__, 3);
@@ -290,31 +375,50 @@ switch ($action) {
 
     case 'steps':
         $steps = (int)$body['steps'];
+        $row = array(
+            'openid' => $openid,
+            'steps' => $steps,
+            'step_date' => date('Y-m-d'),
+            'created' => date('Y-m-d H:i:s'),
+        );
         try {
-            call_user_func($bhInsert, 'blog_helper_wechat', array(
-                'openid' => $openid,
-                'steps' => $steps,
-                'step_date' => date('Y-m-d'),
-                'created' => date('Y-m-d H:i:s'),
-            ));
+            call_user_func($bhInsert, 'blog_helper_wechat', $row);
             bh_reply(0, '步数同步成功');
         } catch (\Throwable $e) {
+            // 旧表缺列（如覆盖升级后未重新激活）：自动补列并重试一次
+            if (bh_repair_missing_column('blog_helper_wechat', $e->getMessage())) {
+                try {
+                    call_user_func($bhInsert, 'blog_helper_wechat', $row);
+                    bh_reply(0, '步数同步成功（已自动补齐数据表缺失字段）');
+                } catch (\Throwable $e2) {
+                    bh_reply(500, '步数入库失败：' . $e2->getMessage());
+                }
+            }
             bh_reply(500, '步数入库失败：' . $e->getMessage());
         }
         break;
 
     case 'status':
+        $row = array(
+            'openid' => $openid,
+            'emoji_id' => bh_cut(bh_param($body, 'emojiId'), 32),
+            'emoji_name' => bh_cut(bh_param($body, 'emojiName'), 32),
+            'emoji' => bh_cut(bh_param($body, 'emoji'), 32),
+            'custom_text' => bh_cut(bh_param($body, 'customText'), 100),
+            'created' => date('Y-m-d H:i:s'),
+        );
         try {
-            call_user_func($bhInsert, 'blog_helper_status', array(
-                'openid' => $openid,
-                'emoji_id' => bh_cut(bh_param($body, 'emojiId'), 32),
-                'emoji_name' => bh_cut(bh_param($body, 'emojiName'), 32),
-                'emoji' => bh_cut(bh_param($body, 'emoji'), 32),
-                'custom_text' => bh_cut(bh_param($body, 'customText'), 100),
-                'created' => date('Y-m-d H:i:s'),
-            ));
+            call_user_func($bhInsert, 'blog_helper_status', $row);
             bh_reply(0, '状态同步成功');
         } catch (\Throwable $e) {
+            if (bh_repair_missing_column('blog_helper_status', $e->getMessage())) {
+                try {
+                    call_user_func($bhInsert, 'blog_helper_status', $row);
+                    bh_reply(0, '状态同步成功（已自动补齐数据表缺失字段）');
+                } catch (\Throwable $e2) {
+                    bh_reply(500, '状态入库失败：' . $e2->getMessage());
+                }
+            }
             bh_reply(500, '状态入库失败：' . $e->getMessage());
         }
         break;

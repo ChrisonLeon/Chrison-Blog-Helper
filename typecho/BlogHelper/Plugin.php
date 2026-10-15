@@ -6,7 +6,7 @@
  *
  * @package BlogHelper
  * @author Chrison
- * @version 2.0.4
+ * @version 2.0.5
  * @link https://chrison.cn
  */
 
@@ -61,7 +61,8 @@ class Plugin implements PluginInterface
         $tableMessage = '';
         try {
             self::createTables();
-            $tableMessage = '数据表创建完成。';
+            self::ensureColumns();
+            $tableMessage = '数据表创建与结构校验完成。';
             bh_fatal_log('activate 建表完成');
         } catch (\Throwable $e) {
             // 建表失败不中断启用（可手动执行 SQL 补建）
@@ -363,6 +364,98 @@ class Plugin implements PluginInterface
             } catch (\Throwable $e) {
                 // 表已存在等情况忽略，保证激活流程不中断
                 bh_fatal_log('createTables 忽略：' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * 期望的表字段清单（表名 => 字段 => [MySQL 定义, SQLite 定义]）
+     * 供 ensureColumns 对旧表做结构自检：插件只覆盖文件升级时（未停用/启用），
+     * CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，缺失字段会导致入库失败。
+     * NOT NULL 一律带默认值：SQLite 硬性要求，同时兼容 MySQL 严格模式。
+     */
+    private static function expectedColumns()
+    {
+        return array(
+            'blog_helper_wechat' => array(
+                'openid'    => array("VARCHAR(64) NOT NULL DEFAULT ''", "VARCHAR(64) NOT NULL DEFAULT ''"),
+                'steps'     => array('INT UNSIGNED NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
+                'step_date' => array("DATE NOT NULL DEFAULT '1970-01-01'", "DATE NOT NULL DEFAULT '1970-01-01'"),
+                'created'   => array("DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+            ),
+            'blog_helper_status' => array(
+                'openid'      => array("VARCHAR(64) NOT NULL DEFAULT ''", "VARCHAR(64) NOT NULL DEFAULT ''"),
+                'emoji_id'    => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'emoji_name'  => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'emoji'       => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'custom_text' => array("VARCHAR(100) NOT NULL DEFAULT ''", "VARCHAR(100) NOT NULL DEFAULT ''"),
+                'created'     => array("DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+            ),
+            'blog_helper_log' => array(
+                'openid'       => array("VARCHAR(64) NOT NULL DEFAULT ''", "VARCHAR(64) NOT NULL DEFAULT ''"),
+                'action'       => array("VARCHAR(32) NOT NULL DEFAULT ''", "VARCHAR(32) NOT NULL DEFAULT ''"),
+                'request_data' => array('TEXT NULL', 'TEXT'),
+                'result'       => array('TINYINT NOT NULL DEFAULT 0', 'INTEGER NOT NULL DEFAULT 0'),
+                'created'      => array("DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'", "DATETIME NOT NULL DEFAULT '1970-01-01 00:00:00'"),
+            ),
+        );
+    }
+
+    /**
+     * 读取表的现有字段名列表；表不存在或读取失败时返回 null（交由建表/重试流程处理）
+     */
+    private static function tableColumns($db, $fullTableName, $isMysql)
+    {
+        try {
+            $rows = $isMysql
+                ? $db->fetchAll('SHOW COLUMNS FROM `' . $fullTableName . '`')
+                : $db->fetchAll('PRAGMA table_info("' . $fullTableName . '")');
+        } catch (\Throwable $e) {
+            bh_fatal_log('ensureColumns 读取表结构失败 ' . $fullTableName . '：' . $e->getMessage());
+            return null;
+        }
+        $cols = array();
+        foreach ($rows as $row) {
+            if (isset($row['Field'])) {
+                $cols[] = $row['Field'];
+            } elseif (isset($row['name'])) {
+                $cols[] = $row['name'];
+            }
+        }
+        return $cols;
+    }
+
+    /**
+     * 结构自检：给旧版数据表补齐缺失字段（ALTER ADD COLUMN），失败不中断激活
+     */
+    private static function ensureColumns()
+    {
+        $db = Db::get();
+        $prefix = $db->getPrefix();
+        $adapterName = '';
+        try {
+            $adapterName = (string)$db->getAdapterName();
+        } catch (\Throwable $e) {
+        }
+        $isMysql = stripos($adapterName, 'mysql') !== false || $adapterName === '';
+
+        foreach (self::expectedColumns() as $table => $columns) {
+            $existing = self::tableColumns($db, $prefix . $table, $isMysql);
+            if ($existing === null) {
+                continue; // 表不存在时由 createTables 负责创建
+            }
+            foreach ($columns as $column => $defs) {
+                if (in_array($column, $existing, true)) {
+                    continue;
+                }
+                $qt = $isMysql ? '`' : '"';
+                try {
+                    $db->query('ALTER TABLE ' . $qt . $prefix . $table . $qt
+                        . ' ADD COLUMN ' . $qt . $column . $qt . ' ' . ($isMysql ? $defs[0] : $defs[1]));
+                    bh_fatal_log('ensureColumns 已补列 ' . $table . '.' . $column);
+                } catch (\Throwable $e) {
+                    bh_fatal_log('ensureColumns 补列失败 ' . $table . '.' . $column . '：' . $e->getMessage());
+                }
             }
         }
     }

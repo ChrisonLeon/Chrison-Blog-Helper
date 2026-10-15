@@ -94,15 +94,14 @@ if (is_file($configFile)) {
         }
 
         // Typecho 版本与站点地址
-        $fetchOne = function ($name) use ($db, $legacyPdo) {
+        $fetchOne = function ($name) use ($db, $legacyPdo, $prefix) {
             try {
                 if ($db) {
                     $r = $db->fetchRow($db->select()->from('table.options')->where('name = ?', $name));
                     return $r ? (string)$r['value'] : '';
                 }
                 if ($legacyPdo) {
-                    $stmt = $legacyPdo->prepare("SELECT `value` FROM `{p}options` WHERE `name` = ?");
-                    global $prefix;
+                    $stmt = $legacyPdo->prepare("SELECT `value` FROM `{$prefix}options` WHERE `name` = ?");
                     $stmt->execute(array($name));
                     $r = $stmt->fetch(PDO::FETCH_ASSOC);
                     return $r ? (string)$r['value'] : '';
@@ -115,19 +114,28 @@ if (is_file($configFile)) {
         $rows[] = bh_row('Typecho 版本', $fetchOne('version') !== '' ? $fetchOne('version') : '未知');
         $rows[] = bh_row('站点地址', $fetchOne('siteUrl') !== '' ? $fetchOne('siteUrl') : '未知');
 
-        // 密钥状态
+        // 密钥状态（Typecho 1.3+ 插件配置存 JSON，旧版存 serialize，两种格式都要识别——
+        // 只 unserialize 会对 JSON 返回 false，导致所有 1.3+ 站点误报"未生成"）
         try {
+            $decodeSettings = function ($value) {
+                $decoded = json_decode((string)$value, true);
+                if (is_array($decoded)) {
+                    return $decoded;
+                }
+                $legacy = @unserialize((string)$value);
+                return is_array($legacy) ? $legacy : array();
+            };
             $hasSecret = false;
             if ($db) {
                 $r = $db->fetchRow($db->select()->from('table.options')->where('name = ?', 'plugin:BlogHelper'));
-                $settings = $r ? unserialize($r['value']) : false;
-                $hasSecret = is_array($settings) && isset($settings['secret_key']) && strlen((string)$settings['secret_key']) >= 16;
+                $settings = $r ? $decodeSettings($r['value']) : array();
+                $hasSecret = isset($settings['secret_key']) && strlen((string)$settings['secret_key']) >= 16;
             } elseif ($legacyPdo) {
-                $stmt = $legacyPdo->prepare("SELECT `value` FROM `{p}options` WHERE `name` = 'plugin:BlogHelper'");
-                $stmt->execute(array());
+                $stmt = $legacyPdo->prepare("SELECT `value` FROM `{$prefix}options` WHERE `name` = 'plugin:BlogHelper'");
+                $stmt->execute();
                 $r = $stmt->fetch(PDO::FETCH_ASSOC);
-                $settings = $r ? unserialize($r['value']) : false;
-                $hasSecret = is_array($settings) && isset($settings['secret_key']) && strlen((string)$settings['secret_key']) >= 16;
+                $settings = $r ? $decodeSettings($r['value']) : array();
+                $hasSecret = isset($settings['secret_key']) && strlen((string)$settings['secret_key']) >= 16;
             }
             $rows[] = bh_row('授权密令', $hasSecret ? '已生成' : '未生成（插件设置页打开一次即自动生成）', $hasSecret);
         } catch (\Throwable $e) {
